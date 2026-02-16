@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Moltbook Thread Viewer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 15px;
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+    }
+
+    .filter-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .filter-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex: 1;
+      min-width: 250px;
+    }
+
+    .filter-label {
+      font-size: 14px;
+      color: #666;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    select, input {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      background: white;
+    }
+
+    select {
+      min-width: 180px;
+    }
+
+    input {
+      flex: 1;
+      min-width: 150px;
+    }
+
+    input.search-box {
+      min-width: 300px;
+      padding-left: 35px;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="gray" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>');
+      background-repeat: no-repeat;
+      background-position: 10px center;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    button.clear-filter {
+      background: #6c757d;
+    }
+
+    button.clear-filter:hover {
+      background: #5a6268;
+    }
+
+    .status {
+      font-size: 14px;
+      color: #666;
+      margin-top: 8px;
+    }
+
+    .status.error {
+      color: #d32f2f;
+    }
+
+    .active-filters {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .filter-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #007bff;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 13px;
+    }
+
+    .filter-badge.submolt {
+      background: #17a2b8;
+    }
+
+    .filter-badge.search {
+      background: #6c757d;
+    }
+
+    .filter-badge button {
+      background: none;
+      border: none;
+      color: white;
+      padding: 0;
+      margin: 0;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+    }
+
+    .posts {
+      display: grid;
+      gap: 15px;
+    }
+
+    .post-card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .post-card.highlighted {
+      border-left: 4px solid #28a745;
+    }
+
+    .post-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+
+    .post-title {
+      font-weight: 600;
+      font-size: 18px;
+      color: #007bff;
+      margin-bottom: 8px;
+    }
+
+    .post-title mark {
+      background: #fff59d;
+      padding: 2px 4px;
+      border-radius: 2px;
+    }
+
+    .post-meta {
+      display: flex;
+      gap: 15px;
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .post-author {
+      font-weight: 500;
+      color: #444;
+    }
+
+    .post-author.my-bot {
+      color: #28a745;
+      font-weight: 600;
+    }
+
+    .post-stats {
+      display: flex;
+      gap: 15px;
+      font-size: 13px;
+      color: #666;
+    }
+
+    .involvement-badge {
+      display: inline-block;
+      background: #28a745;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+
+    .post-content {
+      color: #555;
+      font-size: 14px;
+      line-height: 1.6;
+      margin-top: 10px;
+      max-height: 100px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .post-content mark {
+      background: #fff59d;
+      padding: 2px 4px;
+      border-radius: 2px;
+    }
+
+    .post-content::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 30px;
+      background: linear-gradient(transparent, white);
+    }
+
+    .empty-state {
+      background: white;
+      padding: 60px 20px;
+      border-radius: 8px;
+      text-align: center;
+      color: #999;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      overflow-y: auto;
+    }
+
+    .modal.active {
+      display: flex;
+      align-items: start;
+      justify-content: center;
+      padding: 20px;
+      padding-top: 40px;
+    }
+
+    .modal-content {
+      background: white;
+      border-radius: 8px;
+      max-width: 900px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 30px;
+    }
+
+    .modal-header {
+      margin-bottom: 20px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #eee;
+    }
+
+    .close-button {
+      float: right;
+      background: none;
+      color: #666;
+      font-size: 28px;
+      padding: 0;
+      width: 35px;
+      height: 35px;
+      line-height: 35px;
+    }
+
+    .close-button:hover {
+      background: #f5f5f5;
+    }
+
+    .modal-post-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 15px;
+      clear: both;
+      padding-top: 10px;
+    }
+
+    .modal-post-meta {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 20px;
+    }
+
+    .modal-post-content {
+      font-size: 15px;
+      line-height: 1.7;
+      color: #333;
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #f9f9f9;
+      border-radius: 6px;
+      white-space: pre-wrap;
+    }
+
+    .comments-section {
+      border-top: 2px solid #eee;
+      padding-top: 20px;
+    }
+
+    .comments-header {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    .comment {
+      padding: 15px;
+      margin-bottom: 15px;
+      border-left: 3px solid #007bff;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+
+    .comment.my-bot-comment {
+      border-left-color: #28a745;
+      background: #f0f8f4;
+    }
+
+    .comment-author {
+      font-weight: 600;
+      font-size: 14px;
+      color: #007bff;
+      margin-bottom: 8px;
+    }
+
+    .comment-author.my-bot {
+      color: #28a745;
+    }
+
+    .comment-content {
+      font-size: 14px;
+      line-height: 1.6;
+      color: #333;
+      white-space: pre-wrap;
+    }
+
+    .comment-meta {
+      font-size: 12px;
+      color: #999;
+      margin-top: 8px;
+    }
+
+    .no-comments {
+      text-align: center;
+      padding: 30px;
+      color: #999;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Moltbook Thread Viewer</h1>
+      <div class="controls">
+        <div class="filter-row">
+          <input type="text" id="searchBox" class="search-box" placeholder="Search posts..." onkeyup="handleSearchKeyup(event)" />
+          <button id="refreshBtn" onclick="loadPosts()">Refresh</button>
+          <button class="clear-filter" onclick="clearAllFilters()">Clear All</button>
+        </div>
+        <div class="filter-row">
+          <div class="filter-group">
+            <span class="filter-label">Bot:</span>
+            <select id="botFilter" onchange="applyFilters()">
+              <option value="">All bots</option>
+              <option value="__loading__" disabled>Loading...</option>
+            </select>
+            <input type="text" id="customBotFilter" placeholder="Or type bot name..." onkeyup="handleBotKeyup(event)" />
+          </div>
+          <div class="filter-group">
+            <span class="filter-label">Submolt:</span>
+            <select id="submoltFilter" onchange="applyFilters()">
+              <option value="">All submolts</option>
+              <option value="__loading__" disabled>Loading...</option>
+            </select>
+          </div>
+        </div>
+        <div class="active-filters" id="activeFilters"></div>
+      </div>
+      <div class="status" id="status"></div>
+    </header>
+
+    <div id="postsList" class="posts">
+      <div class="loading">Loading posts...</div>
+    </div>
+  </div>
+
+  <div id="postModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button class="close-button" onclick="closeModal()">&times;</button>
+        <h2 class="modal-post-title" id="modalTitle"></h2>
+        <div class="modal-post-meta" id="modalMeta"></div>
+      </div>
+      <div class="modal-post-content" id="modalContent"></div>
+      <div class="comments-section">
+        <div class="comments-header" id="commentsHeader">Comments</div>
+        <div id="commentsList">
+          <div class="loading">Loading comments...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let posts = [];
+    let allPostsWithComments = [];
+    let currentUser = null;
+    let filters = {
+      bot: '',
+      submolt: '',
+      search: ''
+    };
+
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch('/api/me');
+        if (response.ok) {
+          const data = await response.json();
+          currentUser = data.agent;
+          populateBotFilter();
+        }
+      } catch (error) {
+        console.error('Error loading current user:', error);
+      }
+    }
+
+    async function loadPosts() {
+      const statusEl = document.getElementById('status');
+      const listEl = document.getElementById('postsList');
+      const refreshBtn = document.getElementById('refreshBtn');
+
+      try {
+        refreshBtn.disabled = true;
+        statusEl.textContent = 'Loading posts...';
+        statusEl.className = 'status';
+
+        const response = await fetch('/api/conversations');
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch posts: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        posts = data.posts || [];
+
+        statusEl.textContent = 'Loading comments for filtering...';
+        await loadAllComments();
+
+        populateBotFilter();
+        populateSubmoltFilter();
+        applyFilters();
+
+      } catch (error) {
+        console.error('Error:', error);
+        statusEl.textContent = `Error: ${error.message}`;
+        statusEl.className = 'status error';
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <p>Failed to load posts</p>
+            <p style="margin-top: 10px; font-size: 14px;">${error.message}</p>
+          </div>
+        `;
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    }
+
+    async function loadAllComments() {
+      allPostsWithComments = await Promise.all(
+        posts.map(async (post) => {
+          try {
+            const response = await fetch(`/api/conversations/${post.id}`);
+            if (response.ok) {
+              const data = await response.json();
+              return {
+                ...post,
+                comments: data.comments || []
+              };
+            }
+          } catch (error) {
+            console.error(`Error loading comments for post ${post.id}:`, error);
+          }
+          return { ...post, comments: [] };
+        })
+      );
+    }
+
+    function populateBotFilter() {
+      const select = document.getElementById('botFilter');
+      const allBots = new Set();
+
+      if (currentUser) {
+        allBots.add(currentUser.name);
+      }
+
+      allPostsWithComments.forEach(post => {
+        if (post.author?.name) {
+          allBots.add(post.author.name);
+        }
+        post.comments.forEach(comment => {
+          if (comment.author?.name) {
+            allBots.add(comment.author.name);
+          }
+        });
+      });
+
+      const sortedBots = Array.from(allBots).sort();
+
+      select.innerHTML = '<option value="">All bots</option>';
+
+      if (currentUser) {
+        select.innerHTML += `<option value="${currentUser.name}">My bot (@${currentUser.name})</option>`;
+      }
+
+      select.innerHTML += '<option disabled>──────────</option>';
+
+      sortedBots.forEach(bot => {
+        if (bot !== currentUser?.name) {
+          select.innerHTML += `<option value="${bot}">@${bot}</option>`;
+        }
+      });
+    }
+
+    function populateSubmoltFilter() {
+      const select = document.getElementById('submoltFilter');
+      const allSubmolts = new Set();
+
+      allPostsWithComments.forEach(post => {
+        if (post.submolt?.name) {
+          allSubmolts.add(post.submolt.name);
+        }
+      });
+
+      const sortedSubmolts = Array.from(allSubmolts).sort();
+
+      select.innerHTML = '<option value="">All submolts</option>';
+
+      sortedSubmolts.forEach(submolt => {
+        select.innerHTML += `<option value="${submolt}">r/${submolt}</option>`;
+      });
+    }
+
+    function handleSearchKeyup(event) {
+      if (event.key === 'Enter') {
+        applyFilters();
+      } else {
+        // Auto-search after short delay
+        clearTimeout(window.searchTimeout);
+        window.searchTimeout = setTimeout(applyFilters, 500);
+      }
+    }
+
+    function handleBotKeyup(event) {
+      if (event.key === 'Enter') {
+        applyFilters();
+      }
+    }
+
+    function applyFilters() {
+      const botSelect = document.getElementById('botFilter');
+      const customBotInput = document.getElementById('customBotFilter');
+      const submoltSelect = document.getElementById('submoltFilter');
+      const searchBox = document.getElementById('searchBox');
+
+      filters.bot = customBotInput.value.trim() || botSelect.value;
+      filters.submolt = submoltSelect.value;
+      filters.search = searchBox.value.trim().toLowerCase();
+
+      if (customBotInput.value.trim()) {
+        botSelect.value = '';
+      }
+
+      updateActiveFilters();
+      renderPosts();
+    }
+
+    function updateActiveFilters() {
+      const container = document.getElementById('activeFilters');
+      const badges = [];
+
+      if (filters.bot) {
+        badges.push(`
+          <div class="filter-badge">
+            Bot: @${escapeHtml(filters.bot)}
+            <button onclick="removeFilter('bot')" title="Remove">×</button>
+          </div>
+        `);
+      }
+
+      if (filters.submolt) {
+        badges.push(`
+          <div class="filter-badge submolt">
+            Submolt: r/${escapeHtml(filters.submolt)}
+            <button onclick="removeFilter('submolt')" title="Remove">×</button>
+          </div>
+        `);
+      }
+
+      if (filters.search) {
+        badges.push(`
+          <div class="filter-badge search">
+            Search: "${escapeHtml(filters.search)}"
+            <button onclick="removeFilter('search')" title="Remove">×</button>
+          </div>
+        `);
+      }
+
+      container.innerHTML = badges.join('');
+    }
+
+    function removeFilter(filterType) {
+      if (filterType === 'bot') {
+        filters.bot = '';
+        document.getElementById('botFilter').value = '';
+        document.getElementById('customBotFilter').value = '';
+      } else if (filterType === 'submolt') {
+        filters.submolt = '';
+        document.getElementById('submoltFilter').value = '';
+      } else if (filterType === 'search') {
+        filters.search = '';
+        document.getElementById('searchBox').value = '';
+      }
+      applyFilters();
+    }
+
+    function clearAllFilters() {
+      filters = { bot: '', submolt: '', search: '' };
+      document.getElementById('botFilter').value = '';
+      document.getElementById('customBotFilter').value = '';
+      document.getElementById('submoltFilter').value = '';
+      document.getElementById('searchBox').value = '';
+      updateActiveFilters();
+      renderPosts();
+    }
+
+    function matchesFilters(post) {
+      // Bot filter
+      if (filters.bot) {
+        const botInvolved = post.author?.name === filters.bot ||
+          post.comments.some(c => c.author?.name === filters.bot);
+        if (!botInvolved) return false;
+      }
+
+      // Submolt filter
+      if (filters.submolt) {
+        if (post.submolt?.name !== filters.submolt) return false;
+      }
+
+      // Search filter
+      if (filters.search) {
+        const searchIn = [
+          post.title || '',
+          post.content || '',
+          post.author?.name || ''
+        ].join(' ').toLowerCase();
+
+        if (!searchIn.includes(filters.search)) return false;
+      }
+
+      return true;
+    }
+
+    function highlightText(text, search) {
+      if (!search || !text) return escapeHtml(text);
+
+      const escaped = escapeHtml(text);
+      const searchEscaped = escapeHtml(search);
+      const regex = new RegExp(`(${searchEscaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      return escaped.replace(regex, '<mark>$1</mark>');
+    }
+
+    function renderPosts() {
+      const listEl = document.getElementById('postsList');
+      const statusEl = document.getElementById('status');
+
+      let filteredPosts = allPostsWithComments.filter(matchesFilters);
+
+      if (filteredPosts.length === 0) {
+        const filterDesc = [];
+        if (filters.bot) filterDesc.push(`bot @${filters.bot}`);
+        if (filters.submolt) filterDesc.push(`submolt r/${filters.submolt}`);
+        if (filters.search) filterDesc.push(`search "${filters.search}"`);
+
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <p>${filterDesc.length ? `No threads found matching: ${filterDesc.join(', ')}` : 'No posts found'}</p>
+          </div>
+        `;
+        statusEl.textContent = `0 of ${allPostsWithComments.length} threads`;
+        return;
+      }
+
+      const hasFilters = filters.bot || filters.submolt || filters.search;
+      const statusText = hasFilters
+        ? `Showing ${filteredPosts.length} of ${allPostsWithComments.length} threads`
+        : `Loaded ${allPostsWithComments.length} post(s)`;
+
+      statusEl.textContent = statusText;
+      statusEl.className = 'status';
+
+      listEl.innerHTML = filteredPosts.map((post) => {
+        const author = post.author || {};
+        const submolt = post.submolt || {};
+        const contentPreview = (post.content || '').substring(0, 200);
+        const date = new Date(post.created_at).toLocaleString();
+        const isMyBot = currentUser && author.name === currentUser.name;
+        const botCommented = filters.bot && post.comments.some(c => c.author?.name === filters.bot);
+        const isAuthor = filters.bot && author.name === filters.bot;
+
+        let involvementBadge = '';
+        if (filters.bot) {
+          if (isAuthor && botCommented) {
+            involvementBadge = '<span class="involvement-badge">Posted & Commented</span>';
+          } else if (isAuthor) {
+            involvementBadge = '<span class="involvement-badge">Posted</span>';
+          } else if (botCommented) {
+            involvementBadge = '<span class="involvement-badge">Commented</span>';
+          }
+        }
+
+        const titleHtml = filters.search ? highlightText(post.title || 'Untitled', filters.search) : escapeHtml(post.title || 'Untitled');
+        const contentHtml = filters.search && contentPreview ? highlightText(contentPreview, filters.search) : escapeHtml(contentPreview);
+
+        return `
+          <div class="post-card ${isMyBot ? 'highlighted' : ''}" onclick="openPost('${post.id}')">
+            <div class="post-title">${titleHtml}${involvementBadge}</div>
+            <div class="post-meta">
+              <span class="post-author ${isMyBot ? 'my-bot' : ''}">@${escapeHtml(author.name || 'Unknown')}</span>
+              <span>in r/${escapeHtml(submolt.name || 'general')}</span>
+              <span>${date}</span>
+            </div>
+            <div class="post-stats">
+              <span>👍 ${post.upvotes || 0}</span>
+              <span>💬 ${post.comment_count || 0} comments</span>
+            </div>
+            ${contentPreview ? `<div class="post-content">${contentHtml}${(post.content || '').length > 200 ? '...' : ''}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function openPost(id) {
+      const post = allPostsWithComments.find(p => p.id === id);
+      if (!post) return;
+
+      const modal = document.getElementById('postModal');
+      const titleEl = document.getElementById('modalTitle');
+      const metaEl = document.getElementById('modalMeta');
+      const contentEl = document.getElementById('modalContent');
+      const commentsEl = document.getElementById('commentsList');
+      const commentsHeaderEl = document.getElementById('commentsHeader');
+
+      modal.classList.add('active');
+
+      const author = post.author || {};
+      const submolt = post.submolt || {};
+      const date = new Date(post.created_at).toLocaleString();
+      const isMyBot = currentUser && author.name === currentUser.name;
+
+      titleEl.textContent = post.title || 'Untitled';
+      metaEl.innerHTML = `
+        By <strong class="${isMyBot ? 'my-bot' : ''}">@${escapeHtml(author.name || 'Unknown')}</strong>
+        in <strong>r/${escapeHtml(submolt.name || 'general')}</strong> •
+        ${date} •
+        👍 ${post.upvotes || 0} •
+        💬 ${post.comment_count || 0}
+      `;
+      contentEl.textContent = post.content || '(No content)';
+
+      const comments = post.comments || [];
+      commentsHeaderEl.textContent = `Comments (${comments.length})`;
+
+      if (comments.length === 0) {
+        commentsEl.innerHTML = '<div class="no-comments">No comments yet</div>';
+        return;
+      }
+
+      commentsEl.innerHTML = comments.map(comment => {
+        const commentAuthor = comment.author || {};
+        const commentDate = new Date(comment.created_at).toLocaleString();
+        const isMyBotComment = currentUser && commentAuthor.name === currentUser.name;
+        const isFilteredBot = filters.bot && commentAuthor.name === filters.bot;
+
+        return `
+          <div class="comment ${isMyBotComment || isFilteredBot ? 'my-bot-comment' : ''}">
+            <div class="comment-author ${isMyBotComment ? 'my-bot' : ''}">@${escapeHtml(commentAuthor.name || 'Unknown')}</div>
+            <div class="comment-content">${escapeHtml(comment.content || '')}</div>
+            <div class="comment-meta">
+              ${commentDate} •
+              👍 ${comment.upvotes || 0}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function closeModal() {
+      document.getElementById('postModal').classList.remove('active');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    document.getElementById('postModal').addEventListener('click', (e) => {
+      if (e.target.id === 'postModal') {
+        closeModal();
+      }
+    });
+
+    // Initialize
+    loadCurrentUser().then(() => loadPosts());
+  </script>
+</body>
+</html>
