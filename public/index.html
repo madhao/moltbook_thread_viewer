@@ -54,6 +54,7 @@
       align-items: center;
       flex: 1;
       min-width: 250px;
+      position: relative;
     }
 
     .filter-label {
@@ -61,6 +62,53 @@
       color: #666;
       font-weight: 500;
       white-space: nowrap;
+    }
+
+    .autocomplete-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 85px;
+      right: 0;
+      background: white;
+      border: 1px solid #ddd;
+      border-top: none;
+      border-radius: 0 0 4px 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      margin-top: -1px;
+    }
+
+    .autocomplete-dropdown.active {
+      display: block;
+    }
+
+    .autocomplete-item {
+      padding: 10px 12px;
+      cursor: pointer;
+      font-size: 14px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .autocomplete-item:hover {
+      background: #f5f5f5;
+    }
+
+    .autocomplete-item:last-child {
+      border-bottom: none;
+    }
+
+    .autocomplete-item .agent-name {
+      font-weight: 500;
+      color: #007bff;
+    }
+
+    .autocomplete-item .agent-stats {
+      font-size: 12px;
+      color: #666;
+      margin-top: 2px;
     }
 
     select, input {
@@ -408,6 +456,60 @@
       color: #999;
       font-style: italic;
     }
+
+    .comments-section .bot-comments {
+      margin-bottom: 20px;
+    }
+
+    .comments-section .other-comments {
+      margin-top: 20px;
+    }
+
+    .other-comments-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 15px;
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+      transition: background 0.2s;
+      margin-bottom: 15px;
+    }
+
+    .other-comments-toggle:hover {
+      background: #e9ecef;
+    }
+
+    .other-comments-toggle .toggle-icon {
+      font-size: 12px;
+      transition: transform 0.2s;
+    }
+
+    .other-comments-toggle.expanded .toggle-icon {
+      transform: rotate(90deg);
+    }
+
+    .other-comments-list {
+      display: none;
+    }
+
+    .other-comments-list.expanded {
+      display: block;
+    }
+
+    .section-header {
+      font-size: 15px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e0e0e0;
+    }
   </style>
 </head>
 <body>
@@ -417,6 +519,15 @@
       <div class="controls">
         <div class="filter-row">
           <input type="text" id="searchBox" class="search-box" placeholder="Search posts..." onkeyup="handleSearchKeyup(event)" />
+          <div class="filter-group" style="min-width: 150px;">
+            <span class="filter-label">Show:</span>
+            <select id="postLimit" onchange="applyFilters()">
+              <option value="all">All posts</option>
+              <option value="10">Latest 10</option>
+              <option value="50">Latest 50</option>
+              <option value="100">Latest 100</option>
+            </select>
+          </div>
           <button id="refreshBtn" onclick="loadPosts()">Refresh</button>
           <button class="clear-filter" onclick="clearAllFilters()">Clear All</button>
         </div>
@@ -427,7 +538,21 @@
               <option value="">All bots</option>
               <option value="__loading__" disabled>Loading...</option>
             </select>
-            <input type="text" id="customBotFilter" placeholder="Or type bot name..." onkeyup="handleBotKeyup(event)" />
+            <input type="text" id="customBotFilter" placeholder="Or type bot name..."
+                   onkeyup="handleBotKeyup(event)"
+                   onfocus="showAutocomplete()"
+                   onblur="hideAutocomplete()"
+                   autocomplete="off" />
+            <div id="autocompleteDropdown" class="autocomplete-dropdown"></div>
+          </div>
+          <div class="filter-group" id="activityTypeGroup" style="display: none; min-width: 200px;">
+            <span class="filter-label">Activity:</span>
+            <select id="activityTypeFilter" onchange="applyFilters()">
+              <option value="both">Both</option>
+              <option value="posts_only">Posts Only</option>
+              <option value="comments_only">Comments Only</option>
+              <option value="likes_only">Likes Only</option>
+            </select>
           </div>
           <div class="filter-group">
             <span class="filter-label">Submolt:</span>
@@ -467,11 +592,18 @@
   <script>
     let posts = [];
     let allPostsWithComments = [];
+    let agentPosts = []; // Posts fetched for specific agent
     let currentUser = null;
+    let allAgents = [];
+    let isLoadingAgentPosts = false;
+    let currentAgentPostsPage = 1;
+    let hasMoreAgentPosts = false;
     let filters = {
       bot: '',
       submolt: '',
-      search: ''
+      search: '',
+      limit: 'all',
+      activityType: 'both'
     };
 
     async function loadCurrentUser() {
@@ -548,26 +680,99 @@
       );
     }
 
+    async function loadAgentPosts(agentName) {
+      if (isLoadingAgentPosts) return;
+
+      const statusEl = document.getElementById('status');
+      const listEl = document.getElementById('postsList');
+
+      try {
+        isLoadingAgentPosts = true;
+        statusEl.textContent = `Loading all posts by @${agentName}...`;
+        statusEl.className = 'status';
+        listEl.innerHTML = '<div class="loading">Loading agent activity...</div>';
+
+        // Fetch up to 100 posts where the agent was involved
+        const response = await fetch(`/api/agent-posts/${encodeURIComponent(agentName)}?limit=100`);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch agent posts: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const fetchedPosts = data.posts || [];
+
+        statusEl.textContent = `Loading comments for ${fetchedPosts.length} posts...`;
+
+        // Load comments for all fetched posts
+        agentPosts = await Promise.all(
+          fetchedPosts.map(async (post) => {
+            try {
+              const response = await fetch(`/api/conversations/${post.id}`);
+              if (response.ok) {
+                const data = await response.json();
+                return {
+                  ...post,
+                  comments: data.comments || []
+                };
+              }
+            } catch (error) {
+              console.error(`Error loading comments for post ${post.id}:`, error);
+            }
+            return { ...post, comments: [] };
+          })
+        );
+
+        statusEl.textContent = `Loaded ${agentPosts.length} posts by @${agentName}`;
+        statusEl.className = 'status';
+
+      } catch (error) {
+        console.error('Error loading agent posts:', error);
+        statusEl.textContent = `Error: ${error.message}`;
+        statusEl.className = 'status error';
+        agentPosts = [];
+      } finally {
+        isLoadingAgentPosts = false;
+      }
+    }
+
     function populateBotFilter() {
       const select = document.getElementById('botFilter');
       const allBots = new Set();
+      const agentStats = {};
 
       if (currentUser) {
         allBots.add(currentUser.name);
+        agentStats[currentUser.name] = { posts: 0, comments: 0 };
       }
 
       allPostsWithComments.forEach(post => {
         if (post.author?.name) {
           allBots.add(post.author.name);
+          if (!agentStats[post.author.name]) {
+            agentStats[post.author.name] = { posts: 0, comments: 0 };
+          }
+          agentStats[post.author.name].posts++;
         }
         post.comments.forEach(comment => {
           if (comment.author?.name) {
             allBots.add(comment.author.name);
+            if (!agentStats[comment.author.name]) {
+              agentStats[comment.author.name] = { posts: 0, comments: 0 };
+            }
+            agentStats[comment.author.name].comments++;
           }
         });
       });
 
       const sortedBots = Array.from(allBots).sort();
+
+      // Store for autocomplete
+      allAgents = sortedBots.map(name => ({
+        name,
+        posts: agentStats[name]?.posts || 0,
+        comments: agentStats[name]?.comments || 0
+      }));
 
       select.innerHTML = '<option value="">All bots</option>';
 
@@ -615,26 +820,128 @@
 
     function handleBotKeyup(event) {
       if (event.key === 'Enter') {
+        hideAutocomplete();
         applyFilters();
+      } else if (event.key === 'Escape') {
+        hideAutocomplete();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        navigateAutocomplete(event);
+      } else {
+        updateAutocomplete();
       }
     }
 
-    function applyFilters() {
+    function showAutocomplete() {
+      updateAutocomplete();
+    }
+
+    function hideAutocomplete() {
+      setTimeout(() => {
+        document.getElementById('autocompleteDropdown').classList.remove('active');
+      }, 200);
+    }
+
+    function updateAutocomplete() {
+      const input = document.getElementById('customBotFilter');
+      const dropdown = document.getElementById('autocompleteDropdown');
+      const searchTerm = input.value.trim().toLowerCase();
+
+      if (!searchTerm) {
+        dropdown.innerHTML = '';
+        dropdown.classList.remove('active');
+        return;
+      }
+
+      const matches = allAgents.filter(agent =>
+        agent.name.toLowerCase().includes(searchTerm)
+      ).slice(0, 10);
+
+      if (matches.length === 0) {
+        dropdown.innerHTML = '<div class="autocomplete-item">No matching agents</div>';
+        dropdown.classList.add('active');
+        return;
+      }
+
+      dropdown.innerHTML = matches.map(agent => `
+        <div class="autocomplete-item" onmousedown="selectAgent('${escapeHtml(agent.name)}')">
+          <div class="agent-name">@${escapeHtml(agent.name)}</div>
+          <div class="agent-stats">${agent.posts} post(s), ${agent.comments} comment(s)</div>
+        </div>
+      `).join('');
+
+      dropdown.classList.add('active');
+    }
+
+    function selectAgent(agentName) {
+      const input = document.getElementById('customBotFilter');
+      input.value = agentName;
+      hideAutocomplete();
+      applyFilters();
+    }
+
+    function navigateAutocomplete(event) {
+      const dropdown = document.getElementById('autocompleteDropdown');
+      const items = dropdown.querySelectorAll('.autocomplete-item');
+
+      if (items.length === 0) return;
+
+      event.preventDefault();
+
+      const currentActive = dropdown.querySelector('.autocomplete-item:hover');
+      let index = Array.from(items).indexOf(currentActive);
+
+      if (event.key === 'ArrowDown') {
+        index = (index + 1) % items.length;
+      } else if (event.key === 'ArrowUp') {
+        index = index <= 0 ? items.length - 1 : index - 1;
+      }
+
+      items.forEach(item => item.style.background = '');
+      items[index].style.background = '#f5f5f5';
+      items[index].scrollIntoView({ block: 'nearest' });
+    }
+
+    async function applyFilters() {
       const botSelect = document.getElementById('botFilter');
       const customBotInput = document.getElementById('customBotFilter');
       const submoltSelect = document.getElementById('submoltFilter');
       const searchBox = document.getElementById('searchBox');
+      const postLimit = document.getElementById('postLimit');
 
+      const previousBot = filters.bot;
       filters.bot = customBotInput.value.trim() || botSelect.value;
       filters.submolt = submoltSelect.value;
       filters.search = searchBox.value.trim().toLowerCase();
+      filters.limit = postLimit.value;
+      filters.activityType = document.getElementById('activityTypeFilter').value;
 
       if (customBotInput.value.trim()) {
         botSelect.value = '';
       }
 
       updateActiveFilters();
+      updateActivityTypeVisibility();
+
+      // If bot filter changed and is not empty, load agent-specific posts
+      if (filters.bot && filters.bot !== previousBot) {
+        await loadAgentPosts(filters.bot);
+      } else if (!filters.bot) {
+        // If bot filter cleared, clear agent posts
+        agentPosts = [];
+      }
+
       renderPosts();
+    }
+
+    function updateActivityTypeVisibility() {
+      const activityTypeGroup = document.getElementById('activityTypeGroup');
+      if (filters.bot) {
+        activityTypeGroup.style.display = 'flex';
+      } else {
+        activityTypeGroup.style.display = 'none';
+        document.getElementById('activityTypeFilter').value = 'both';
+        filters.activityType = 'both';
+      }
     }
 
     function updateActiveFilters() {
@@ -646,6 +953,21 @@
           <div class="filter-badge">
             Bot: @${escapeHtml(filters.bot)}
             <button onclick="removeFilter('bot')" title="Remove">×</button>
+          </div>
+        `);
+      }
+
+      if (filters.bot && filters.activityType !== 'both') {
+        const activityLabels = {
+          'posts_only': 'Posts Only',
+          'comments_only': 'Comments Only',
+          'likes_only': 'Likes Only'
+        };
+        const activityLabel = activityLabels[filters.activityType] || filters.activityType;
+        badges.push(`
+          <div class="filter-badge">
+            Activity: ${activityLabel}
+            <button onclick="removeFilter('activityType')" title="Remove">×</button>
           </div>
         `);
       }
@@ -676,6 +998,9 @@
         filters.bot = '';
         document.getElementById('botFilter').value = '';
         document.getElementById('customBotFilter').value = '';
+      } else if (filterType === 'activityType') {
+        filters.activityType = 'both';
+        document.getElementById('activityTypeFilter').value = 'both';
       } else if (filterType === 'submolt') {
         filters.submolt = '';
         document.getElementById('submoltFilter').value = '';
@@ -687,21 +1012,35 @@
     }
 
     function clearAllFilters() {
-      filters = { bot: '', submolt: '', search: '' };
+      filters = { bot: '', submolt: '', search: '', limit: 'all', activityType: 'both' };
       document.getElementById('botFilter').value = '';
       document.getElementById('customBotFilter').value = '';
       document.getElementById('submoltFilter').value = '';
       document.getElementById('searchBox').value = '';
+      document.getElementById('postLimit').value = 'all';
+      document.getElementById('activityTypeFilter').value = 'both';
+      agentPosts = []; // Clear agent-specific posts
       updateActiveFilters();
+      updateActivityTypeVisibility();
       renderPosts();
     }
 
     function matchesFilters(post) {
-      // Bot filter
+      // Bot filter with activity type
       if (filters.bot) {
-        const botInvolved = post.author?.name === filters.bot ||
-          post.comments.some(c => c.author?.name === filters.bot);
-        if (!botInvolved) return false;
+        const isAuthor = post.author?.name === filters.bot;
+        const hasComments = post.comments.some(c => c.author?.name === filters.bot);
+
+        if (filters.activityType === 'posts_only') {
+          if (!isAuthor) return false;
+        } else if (filters.activityType === 'comments_only') {
+          if (!hasComments || isAuthor) return false;
+        } else if (filters.activityType === 'likes_only') {
+          // Show only posts where bot liked but didn't author or comment
+          if (isAuthor || hasComments) return false;
+        } else { // 'both'
+          if (!isAuthor && !hasComments) return false;
+        }
       }
 
       // Submolt filter
@@ -736,7 +1075,46 @@
       const listEl = document.getElementById('postsList');
       const statusEl = document.getElementById('status');
 
-      let filteredPosts = allPostsWithComments.filter(matchesFilters);
+      // Determine data source based on filter and activity type
+      let sourcePostsWithComments;
+
+      if (filters.bot && agentPosts.length > 0) {
+        if (filters.activityType === 'posts_only') {
+          // For posts only, use feed data since API doesn't return authored posts
+          sourcePostsWithComments = allPostsWithComments;
+        } else if (filters.activityType === 'both') {
+          // For both, merge feed and agent posts to get complete coverage
+          const allIds = new Set();
+          sourcePostsWithComments = [];
+
+          // Add from feed first
+          allPostsWithComments.forEach(post => {
+            allIds.add(post.id);
+            sourcePostsWithComments.push(post);
+          });
+
+          // Add from agentPosts if not already included
+          agentPosts.forEach(post => {
+            if (!allIds.has(post.id)) {
+              sourcePostsWithComments.push(post);
+            }
+          });
+        } else {
+          // For comments_only and likes_only, use agentPosts
+          sourcePostsWithComments = agentPosts;
+        }
+      } else {
+        sourcePostsWithComments = allPostsWithComments;
+      }
+
+      let filteredPosts = sourcePostsWithComments.filter(matchesFilters);
+
+      // Apply post limit
+      const totalFiltered = filteredPosts.length;
+      if (filters.limit !== 'all') {
+        const limit = parseInt(filters.limit);
+        filteredPosts = filteredPosts.slice(0, limit);
+      }
 
       if (filteredPosts.length === 0) {
         const filterDesc = [];
@@ -749,14 +1127,30 @@
             <p>${filterDesc.length ? `No threads found matching: ${filterDesc.join(', ')}` : 'No posts found'}</p>
           </div>
         `;
-        statusEl.textContent = `0 of ${allPostsWithComments.length} threads`;
+        statusEl.textContent = `0 of ${sourcePostsWithComments.length} threads`;
         return;
       }
 
       const hasFilters = filters.bot || filters.submolt || filters.search;
-      const statusText = hasFilters
-        ? `Showing ${filteredPosts.length} of ${allPostsWithComments.length} threads`
-        : `Loaded ${allPostsWithComments.length} post(s)`;
+      const hasLimit = filters.limit !== 'all';
+      const usingAgentPosts = filters.bot && agentPosts.length > 0;
+
+      let statusText;
+      if (usingAgentPosts) {
+        if (hasLimit) {
+          statusText = `Showing ${filteredPosts.length} of ${totalFiltered} threads by @${filters.bot} (from ${agentPosts.length} total activity)`;
+        } else {
+          statusText = `Showing ${filteredPosts.length} threads by @${filters.bot} (lifetime activity)`;
+        }
+      } else if (hasLimit && hasFilters) {
+        statusText = `Showing ${filteredPosts.length} of ${totalFiltered} matching threads (from ${allPostsWithComments.length} total)`;
+      } else if (hasLimit) {
+        statusText = `Showing ${filteredPosts.length} of ${allPostsWithComments.length} threads`;
+      } else if (hasFilters) {
+        statusText = `Showing ${filteredPosts.length} of ${allPostsWithComments.length} threads`;
+      } else {
+        statusText = `Loaded ${allPostsWithComments.length} post(s)`;
+      }
 
       statusEl.textContent = statusText;
       statusEl.className = 'status';
@@ -803,7 +1197,11 @@
     }
 
     async function openPost(id) {
-      const post = allPostsWithComments.find(p => p.id === id);
+      // Search in both feed posts and agent-specific posts
+      let post = allPostsWithComments.find(p => p.id === id);
+      if (!post && agentPosts.length > 0) {
+        post = agentPosts.find(p => p.id === id);
+      }
       if (!post) return;
 
       const modal = document.getElementById('postModal');
@@ -832,33 +1230,92 @@
 
       const comments = post.comments || [];
       commentsHeaderEl.textContent = `Comments (${comments.length})`;
-
-      if (comments.length === 0) {
-        commentsEl.innerHTML = '<div class="no-comments">No comments yet</div>';
-        return;
-      }
-
-      commentsEl.innerHTML = comments.map(comment => {
-        const commentAuthor = comment.author || {};
-        const commentDate = new Date(comment.created_at).toLocaleString();
-        const isMyBotComment = currentUser && commentAuthor.name === currentUser.name;
-        const isFilteredBot = filters.bot && commentAuthor.name === filters.bot;
-
-        return `
-          <div class="comment ${isMyBotComment || isFilteredBot ? 'my-bot-comment' : ''}">
-            <div class="comment-author ${isMyBotComment ? 'my-bot' : ''}">@${escapeHtml(commentAuthor.name || 'Unknown')}</div>
-            <div class="comment-content">${escapeHtml(comment.content || '')}</div>
-            <div class="comment-meta">
-              ${commentDate} •
-              👍 ${comment.upvotes || 0}
-            </div>
-          </div>
-        `;
-      }).join('');
+      commentsEl.innerHTML = renderComments(comments, filters.bot);
     }
 
     function closeModal() {
       document.getElementById('postModal').classList.remove('active');
+    }
+
+    function renderComments(comments, botName) {
+      if (comments.length === 0) {
+        return '<div class="no-comments">No comments yet</div>';
+      }
+
+      if (!botName) {
+        return comments.map(comment => renderSingleComment(comment, null)).join('');
+      }
+
+      const botComments = [];
+      const otherComments = [];
+
+      comments.forEach(comment => {
+        if (comment.author?.name === botName) {
+          botComments.push(comment);
+        } else {
+          otherComments.push(comment);
+        }
+      });
+
+      let html = '';
+
+      if (botComments.length > 0) {
+        html += '<div class="bot-comments">';
+        html += '<div class="section-header">Bot\'s Comments</div>';
+        html += botComments.map(comment => renderSingleComment(comment, botName)).join('');
+        html += '</div>';
+      }
+
+      if (otherComments.length > 0) {
+        const otherCount = otherComments.length;
+        html += '<div class="other-comments">';
+        html += `
+          <div class="other-comments-toggle" onclick="toggleOtherComments()" id="otherCommentsToggle">
+            <span class="toggle-icon">▶</span>
+            <span>Show ${otherCount} other comment${otherCount !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="other-comments-list" id="otherCommentsList">
+        `;
+        html += otherComments.map(comment => renderSingleComment(comment, botName)).join('');
+        html += '</div></div>';
+      }
+
+      return html;
+    }
+
+    function renderSingleComment(comment, botName) {
+      const commentAuthor = comment.author || {};
+      const commentDate = new Date(comment.created_at).toLocaleString();
+      const isMyBotComment = currentUser && commentAuthor.name === currentUser.name;
+      const isFilteredBot = botName && commentAuthor.name === botName;
+
+      return `
+        <div class="comment ${isMyBotComment || isFilteredBot ? 'my-bot-comment' : ''}">
+          <div class="comment-author ${isMyBotComment ? 'my-bot' : ''}">@${escapeHtml(commentAuthor.name || 'Unknown')}</div>
+          <div class="comment-content">${escapeHtml(comment.content || '')}</div>
+          <div class="comment-meta">
+            ${commentDate} •
+            👍 ${comment.upvotes || 0}
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleOtherComments() {
+      const toggle = document.getElementById('otherCommentsToggle');
+      const list = document.getElementById('otherCommentsList');
+
+      toggle.classList.toggle('expanded');
+      list.classList.toggle('expanded');
+
+      const icon = toggle.querySelector('.toggle-icon');
+      const text = toggle.querySelector('span:last-child');
+      const isExpanded = toggle.classList.contains('expanded');
+      const count = list.querySelectorAll('.comment').length;
+
+      text.textContent = isExpanded
+        ? `Hide ${count} other comment${count !== 1 ? 's' : ''}`
+        : `Show ${count} other comment${count !== 1 ? 's' : ''}`;
     }
 
     function escapeHtml(text) {

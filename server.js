@@ -82,6 +82,36 @@ app.get('/api/me', async (req, res) => {
   }
 });
 
+// API endpoint to search posts by agent (returns ALL posts where agent posted or commented)
+app.get('/api/agent-posts/:agentName', async (req, res) => {
+  try {
+    const { agentName } = req.params;
+    const limit = req.query.limit || 100; // Default to 100 posts
+    const page = req.query.page || 1;
+
+    const response = await fetch(
+      `https://www.moltbook.com/api/v1/posts?author=${encodeURIComponent(agentName)}&limit=${limit}&page=${page}`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Moltbook API error: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching agent posts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Moltbook Chat Viewer running at http://localhost:${PORT}`);
   console.log('Press Ctrl+C to stop');
